@@ -1,0 +1,179 @@
+import {
+  OrbitControls,
+  useGLTF,
+  useTexture,
+  MeshPortalMaterial,
+  RoundedBox,
+  Text,
+  CameraControls
+} from "@react-three/drei";
+import { useState, useRef, useEffect } from "react";
+import * as THREE from "three";
+import { easing } from "maath";
+import { useFrame } from "@react-three/fiber";
+
+const Scene = () => {
+  const [active, setActive] = useState(false); // Controls the portal's state (open/close)
+  const [showSpheres, setShowSpheres] = useState(false); // Controls visibility of the spheres
+  const meshPortalMtlRef = useRef();
+  const cameraControlRef = useRef();
+  const sphereRefs = useRef([]);
+  const [animationStarted, setAnimationStarted] = useState(false); // Trigger animation when clicked
+
+  const model = useGLTF("/model/ansh-new.glb");
+  const texture = useTexture("texture/3.png");
+
+  const [dis, setDis] = useState(2)
+
+  // Store mouse position
+  const mouse = useRef(new THREE.Vector2());
+
+  // Event listener for mouse movement
+  useEffect(() => {
+    const handleMouseMove = (event) => {
+      // Normalizing mouse coordinates to -1 to 1 range
+      mouse.current.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.current.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+
+    // Clean up the event listener on unmount
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, []);
+
+  // Trigger animation on portal interaction
+  const handleClick = () => {
+    setActive(!active);
+    if(!active) {
+      setDis(0.8);
+    }else {
+      setDis(5);
+    }
+    setShowSpheres(true); // Make spheres visible after clicking
+    setAnimationStarted(true); // Trigger animation when clicked
+  };
+
+  // Animation using `useFrame`
+  useFrame((_, delta) => {
+    easing.damp(meshPortalMtlRef.current, "blend", active ? 1 : 0, 0.2, delta);
+
+    // Only animate after the portal has been clicked and inside the portal
+    if (animationStarted) {
+      // Animate the spheres after clicking
+      sphereRefs.current.forEach((sphere) => {
+        if (sphere) {
+          // Add some scaling animation when entering the portal
+          sphere.scale.x = THREE.MathUtils.lerp(sphere.scale.x, 1.5, delta * 5); // Scale up effect
+          sphere.scale.y = THREE.MathUtils.lerp(sphere.scale.y, 1.5, delta * 5);
+          sphere.scale.z = THREE.MathUtils.lerp(sphere.scale.z, 1.5, delta * 5);
+
+          // After a while, return to normal scale
+          if (sphere.scale.x >= 1.4) {
+            sphere.scale.set(1, 1, 1); // Return to original size after scaling
+            setAnimationStarted(false); // Stop the animation after scaling
+          }
+        }
+      });
+    }
+
+    // Animate spheres in the background
+    sphereRefs.current.forEach((sphere) => {
+      if (sphere) {
+        // Floating animation with oscillation for a more natural effect
+        sphere.position.y += Math.sin(sphere.position.x + Date.now() * 0.001) * 0.02; // Move up and down
+        sphere.position.x += Math.cos(sphere.position.z + Date.now() * 0.001) * 0.02; // Move side to side
+        sphere.position.z += Math.sin(sphere.position.y + Date.now() * 0.001) * 0.02; // Move forward and backward
+        sphere.rotation.x += 0.005; // Slight rotation for realism
+        sphere.rotation.y += 0.005; // Slight rotation for realism
+
+        // Make the spheres react to mouse movement
+        const distanceX = (sphere.position.x - mouse.current.x * 5); // Multiplied for more noticeable effect
+        const distanceY = (sphere.position.y - mouse.current.y * 5); // Multiplied for more noticeable effect
+
+        // Move the spheres slightly based on mouse position
+        sphere.position.x += distanceX * 0.01; // Small movement towards mouse x position
+        sphere.position.y += distanceY * 0.01; // Small movement towards mouse y position
+
+        // Magnet effect: Move spheres back to the center if they move too far
+        const center = new THREE.Vector3(0, 0, 0); // The center of the scene
+        const distanceFromCenter = sphere.position.distanceTo(center); // Get the distance from the center
+
+        if (distanceFromCenter > 3) { // When the sphere is too far from the center
+          const directionToCenter = center.sub(sphere.position).normalize(); // Calculate the direction to the center
+          const strength = 0.01; // How strong the magnet effect is (adjust as needed)
+          sphere.position.add(directionToCenter.multiplyScalar(strength)); // Pull the sphere toward the center
+        }
+      }
+    });
+  });
+
+  useEffect(() => {
+    if (active) {
+      cameraControlRef.current.setLookAt(0, 0, 3, 0, 0, 0, true);
+    } else {
+      cameraControlRef.current.setLookAt(0, 0, 5, 0, 0, 0, true);
+    }
+  }, [active]);
+
+  return (
+    <>
+      <CameraControls ref={cameraControlRef} />
+      
+      <Text font="./font/bold.ttf" position={[0, 1.6, 0.1]} fontSize={0.5} color={"black"}>
+        Ansh
+        <meshBasicMaterial toneMapped={false} />
+      </Text>
+      <RoundedBox args={[3, 4, 0.1]} radius={0.1} onClick={handleClick}>
+        <MeshPortalMaterial ref={meshPortalMtlRef}>
+        <Text font="./font/bold.ttf" position={[0, dis, 1.5]} fontSize={0.3} color={"black"}>
+        Happy Birthday Ansh
+        <meshBasicMaterial toneMapped={false} />
+      </Text>
+          <ambientLight intensity={1} />
+          <primitive object={model.scene} scale={1.8} position-y={0} />
+          <mesh>
+            <sphereGeometry args={[8, 64, 64]} />
+            <meshBasicMaterial map={texture} side={THREE.BackSide} />
+          </mesh>
+
+          {/* Show dynamic animated spheres only after entering the portal */}
+          {showSpheres && (
+            <>
+              {[...Array(200)].map((_, index) => {
+                const radius = Math.random() * 0.3 + 0.5; // Larger random size for realism
+                const xPos = Math.random() * 10 - 5; // Random position on x-axis
+                const yPos = Math.random() * 6 + 1; // Random position on y-axis
+                const zPos = Math.random() * 10 - 5; // Random position on z-axis
+
+                return (
+                  <mesh
+                    key={index}
+                    ref={(el) => sphereRefs.current[index] = el}
+                    position={[xPos, yPos, zPos]}
+                  >
+                    <sphereGeometry args={[radius, 32, 32]} />
+                    <meshStandardMaterial
+                      color={new THREE.Color(Math.random(), Math.random(), Math.random())}
+                      transparent
+                      opacity={0.8} // Slight transparency to mimic bubbles
+                      emissive={new THREE.Color(0xffffff)} // White glow effect
+                      roughness={0.1} // Smooth surface for refraction
+                      metalness={0.3} // Some metallic look for bubble-like effect
+                      envMapIntensity={1} // Reflect surrounding environment
+                      refractionRatio={0.98} // Refraction to simulate bubble material
+                    />
+                  </mesh>
+                );
+              })}
+            </>
+          )}
+        </MeshPortalMaterial>
+      </RoundedBox>
+    </>
+  );
+};
+
+export default Scene;
